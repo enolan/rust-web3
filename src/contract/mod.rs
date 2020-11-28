@@ -1,11 +1,16 @@
 //! Ethereum Contract Interface
 
-use crate::api::{Accounts, Eth, Namespace};
+#[cfg(feature = "signing")]
+use crate::api::Accounts;
+use crate::api::{Eth, Namespace};
 use crate::confirm;
 use crate::contract::tokens::{Detokenize, Tokenize};
+#[cfg(feature = "signing")]
 use crate::signing;
+#[cfg(feature = "signing")]
+use crate::types::TransactionParameters;
 use crate::types::{
-    Address, BlockId, Bytes, CallRequest, FilterBuilder, TransactionCondition, TransactionParameters,
+    Address, BlockId, Bytes, CallRequest, FilterBuilder, TransactionCondition,
     TransactionReceipt, TransactionRequest, H256, U256,
 };
 use crate::Transport;
@@ -142,6 +147,7 @@ impl<T: Transport> Contract<T> {
     }
 
     /// Execute a signed contract function and wait for confirmations
+    #[cfg(feature = "signing")]
     pub async fn signed_call_with_confirmations(
         &self,
         func: &str,
