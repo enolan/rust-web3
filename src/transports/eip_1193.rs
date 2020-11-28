@@ -7,15 +7,24 @@
 #![cfg(feature = "eip-1193")]
 
 use crate::api::SubscriptionId;
-use crate::{error, DuplexTransport, Error, RequestId, Transport};
+use crate::{error, types, DuplexTransport, Error, RequestId, Transport};
 use futures::channel::mpsc;
 use futures::future::LocalBoxFuture;
-use futures::future;
+use futures::{future, StreamExt};
 use jsonrpc_core::types::request::{Call, MethodCall};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::iter::FromIterator;
 use std::rc::Rc;
+use std::str::FromStr;
 use wasm_bindgen::prelude::*;
+
+// TODO delete before pushing, and the web_sys dependency.
+macro_rules! log {
+    ( $( $t:tt )* ) => {
+        web_sys::console::log_1(&format!( $( $t )* ).into());
+    }
+}
 
 /// EIP-1193 transport
 #[derive(Clone, Debug)]
@@ -183,4 +192,76 @@ impl RequestArguments {
     pub fn params(&self) -> js_sys::Array {
         self.params.clone()
     }
+}
+
+#[wasm_bindgen]
+/// Testing toy
+pub async fn test() {
+    console_error_panic_hook::set_once();
+    console_log::init_with_level(log::Level::Debug).unwrap();
+
+    let transport = Eip1193::new(Provider::get_default().unwrap());
+    let res = transport
+        .provider
+        .request_wrapped(RequestArguments {
+            method: String::from("eth_getBlockByHash"),
+            params: js_sys::Array::from_iter(vec![
+                JsValue::from("0x58872fd8972550c7dfc9b632402fa8c357243221f6d7ca0202f5695f9663ece5"),
+                JsValue::from(false),
+            ]),
+        })
+        .await
+        .unwrap();
+    log!("Hello block {}", res);
+    let web3 = crate::api::Web3::new(transport);
+    let block = web3.eth().block_number().await;
+    log!("Via rust lib: {:?}", block);
+    log!(
+        "tx: {:?}",
+        web3.eth()
+            .transaction(types::TransactionId::from(
+                types::H256::from_str("48eda9b5d9b30ce4f3738a5302450f1dc8d72c89bc74ad1ed51d1136a3e801aa").unwrap()
+            ))
+            .await
+    );
+    log!(
+        "WETH contract balance: {:?}",
+        web3.eth()
+            .balance(
+                types::H160::from_str("C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2").unwrap(),
+                None
+            )
+            .await
+    );
+
+    let accounts = web3.eth().request_accounts().await.unwrap();
+    log!("accounts: {:?}", accounts);
+
+    let tx = types::TransactionRequest {
+        from: accounts[0],
+        to: Some(types::H160::random()),
+        gas: None,
+        gas_price: None,
+        value: Some(types::U256::exp10(18)),
+        data: None,
+        nonce: None,
+        condition: None
+    };
+
+    let res = web3.eth().send_transaction(tx).await;
+    log!("sent tx: {:?}", res);
+
+    let eth_subscribe = web3.eth_subscribe();
+    let stream = eth_subscribe.subscribe_new_heads().await.unwrap();
+    stream
+        .for_each(|block| {
+            let block = block.unwrap();
+            log!(
+                "block from stream: #{}, hash {:?}",
+                block.number.unwrap(),
+                block.hash.unwrap()
+            );
+            future::ready(())
+        })
+        .await;
 }
